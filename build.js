@@ -14,8 +14,10 @@
 
 'use strict';
 
+const assert = require('assert');
 const fs = require('fs-extra');
 const klaw = require('klaw');
+const modernizr = require('modernizr');
 const path = require('path');
 
 const reports = require('./reffy-reports');
@@ -222,6 +224,59 @@ async function buildManifest() {
   writeText('MANIFEST.json', JSON.stringify(manifest, null, '  '));
 }
 
+const MODERNIZR_FEATURE_TO_BCD_PATH = {
+  'cssremunit': 'css.types.length.rem',
+};
+
+async function buildModernizr() {
+  const featureDetects = [];
+  for (const test of modernizr.metadata()) {
+    if (!(test.property in MODERNIZR_FEATURE_TO_BCD_PATH)) {
+      continue;
+    }
+    if (test.async) {
+      continue;
+    }
+    // https://github.com/Modernizr/Modernizr/blob/acb3f0d990d3424ee7fade52796f9f97920354fc/lib/metadata.js#L67
+    assert(test.amdPath.startsWith('test/'));
+    const feature = test.amdPath.substr(5);
+    featureDetects.push(feature);
+  }
+  const config = {
+    'enableClasses': false,
+    'enableJSClass': false,
+    'usePrefixes': false,
+    // TODO: create this list programatically. trouble is `test.deps` includes
+    // other tests and stuff beyond what's in this list.
+    'options': [
+      'addTest',
+      'atRule',
+      'domPrefixes',
+      'hasEvent',
+      'html5shiv',
+      'html5printshiv',
+      'mq',
+      'prefixed',
+      'prefixes',
+      'prefixedCSS',
+      'setClasses',
+      'testAllProps',
+      'testProp',
+      'testStyles',
+    ],
+    'feature-detects': featureDetects,
+  };
+  const js = await new Promise((resolve, _) => {
+    modernizr.build(config, resolve);
+  });
+  const filename = path.join(generatedDir, 'modernizr', 'modernizr.js');
+  writeText(filename, js);
+
+  for (const [modprop, bcdpath] of Object.entries(MODERNIZR_FEATURE_TO_BCD_PATH)) {
+    // TODO
+  }
+}
+
 function copyResources() {
   const resources = [
     ['json3/lib/json3.min.js', 'resources'],
@@ -241,6 +296,7 @@ function copyResources() {
 async function build() {
   buildCSS();
   buildIDL();
+  await buildModernizr();
   await buildManifest();
   copyResources();
 }
